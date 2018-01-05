@@ -17,6 +17,7 @@ Here is a list of the APIs:
  - [x] GetQueueAttributes (Always returns all attributes - depth and arn are set correctly others are mocked)
  - [x] GetQueueUrl
  - [x] SendMessage
+ - [ ] SendMessageBatch
  - [x] ReceiveMessage
  - [x] DeleteMessage
  - [x] PurgeQueue
