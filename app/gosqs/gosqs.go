@@ -35,6 +35,11 @@ type Message struct {
 	ReceiptTime            time.Time
 }
 
+type BatchMessage struct {
+	Message
+	Id string
+}
+
 type Queue struct {
 	Name        string
 	URL         string
@@ -145,6 +150,80 @@ func SendMessage(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+func SendMessageBatch(w http.ResponseWriter, req *http.Request) {
+	w.Header().Set("Content-Type", "application/xml")
+	messageBody := req.FormValue("MessageBody")
+	entries := extractSendBatchRequestEntries(req)
+
+	queueUrl := getQueueFromPath(req.FormValue("QueueUrl"), req.URL.String())
+
+	queueName := ""
+	if queueUrl == "" {
+		vars := mux.Vars(req)
+		queueName = vars["queueName"]
+	} else {
+		uriSegments := strings.Split(queueUrl, "/")
+		queueName = uriSegments[len(uriSegments)-1]
+	}
+
+	if _, ok := SyncQueues.Queues[queueName]; !ok {
+		// Queue does not exists
+		createErrorResponse(w, req, "QueueNotFound")
+		return
+	}
+
+	log.Println("Putting Batch Messages in Queue:", queueName)
+	resultEntries := []app.SendMessageBatchResultEntry{}
+	for _, entry := range entries {
+		entry.MD5OfMessageBody = common.GetMD5Hash(messageBody)
+		entry.Uuid, _ = common.NewUUID()
+		resultEntries = append(resultEntries, app.SendMessageBatchResultEntry{
+			Id: entry.Id,
+			MessageId: entry.Uuid,
+			MD5OfMessageBody: entry.MD5OfMessageBody,
+		})
+	}
+	SyncQueues.Lock()
+	for _, entry := range entries {
+		msg := entry.Message
+		SyncQueues.Queues[queueName].Messages = append(SyncQueues.Queues[queueName].Messages, msg)
+		common.LogMessage(fmt.Sprintf("%s: Queue: %s, Batch Message: %s\n", time.Now().Format("2006-01-02 15:04:05"), queueName, msg.MessageBody))
+	}
+	SyncQueues.Unlock()
+
+	respStruct := app.SendMessageBatchResponse{
+		Xmlns: "http://queue.amazonaws.com/doc/2012-11-05/",
+		Result: resultEntries,
+		Metadata: app.ResponseMetadata{RequestId: "00000000-0000-0000-0000-000000000000"},
+	}
+	enc := xml.NewEncoder(w)
+	enc.Indent("  ", "    ")
+	if err := enc.Encode(respStruct); err != nil {
+		log.Printf("error: %v\n", err)
+	}
+}
+
+func extractSendBatchRequestEntries(req *http.Request) []BatchMessage {
+	entries := []BatchMessage{}
+
+	for i := 1; true; i++ {
+		Id := req.FormValue(fmt.Sprintf("SendMessageBatchRequestEntry.%d.Id", i))
+		if Id == "" {
+			break
+		}
+
+		messageBody := req.FormValue(fmt.Sprintf("SendMessageBatchRequestEntry.%d.MessageBody", i))
+		entries = append(entries, BatchMessage{
+			Id: Id,
+			Message: Message{
+				MessageBody: []byte(messageBody),
+			},
+		})
+	}
+
+	return entries
+}
+
 func ReceiveMessage(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/xml")
 
@@ -236,10 +315,10 @@ func numberOfHiddenMessagesInQueue(queue Queue) int {
 }
 
 type DeleteEntry struct {
-	Id string
+	Id            string
 	ReceiptHandle string
-	Error string
-	Deleted bool
+	Error         string
+	Deleted       bool
 }
 
 func DeleteMessageBatch(w http.ResponseWriter, req *http.Request) {
@@ -306,9 +385,9 @@ func DeleteMessageBatch(w http.ResponseWriter, req *http.Request) {
 	for _, deleteEntry := range deleteEntries {
 		if deleteEntry.Deleted == false {
 			notFoundEntries = append(notFoundEntries, app.BatchResultErrorEntry{
-				Code: "1",
-				Id: deleteEntry.Id,
-				Message: "Message not found",
+				Code:        "1",
+				Id:          deleteEntry.Id,
+				Message:     "Message not found",
 				SenderFault: true})
 		}
 	}

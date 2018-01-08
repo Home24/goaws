@@ -36,6 +36,20 @@ type SendMessageResponse struct {
 	Metadata ResponseMetadata  `xml:"ResponseMetadata"`
 }
 
+/*** Send Message Batch Response */
+
+type SendMessageBatchResultEntry struct {
+	Id               string `xml:"Id"`
+	MessageId        string `xml:"MessageId"`
+	MD5OfMessageBody string `xml:"MD5OfMessageBody"`
+}
+
+type SendMessageBatchResponse struct {
+	Xmlns    string                        `xml:"xmlns,attr"`
+	Result   []SendMessageBatchResultEntry `xml:"SendMessageBatchResult"`
+	Metadata ResponseMetadata              `xml:"ResponseMetadata"`
+}
+
 /*** Receive Message Response */
 
 type ResultMessage struct {
